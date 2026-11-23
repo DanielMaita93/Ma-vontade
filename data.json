@@ -1,0 +1,11 @@
+{
+  "guildName": "Ma Vontade",
+  "settings": {
+    "defaultMinPoints": 4,
+    "defaultMinContribution": 0,
+    "maxStrikes": 3
+  },
+  "lastUpdated": "",
+  "weeks": [],
+  "players": {}
+}

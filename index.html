@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ma Vontade — Controle Semanal da Guild</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Barra Superior -->
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-icon" aria-hidden="true">⚡</div>
+        <div>
+          <h1 id="guildTitleDisplay">Ma Vontade</h1>
+          <p class="brand-subtitle" id="lastUpdatedDisplay">Controle Semanal de Metas e Penalidades</p>
+        </div>
+      </div>
+
+      <nav class="nav-actions">
+        <button class="tab-btn active" id="navPublicBtn" data-view="public">
+          👥 Visão dos Membros
+        </button>
+        <button class="tab-btn" id="navAdminBtn" data-view="admin">
+          🔒 Painel Líder / Vice
+        </button>
+        <div class="admin-badge hidden" id="adminSessionBadge">
+          <span id="adminRoleLabel">Líder</span>
+          <button class="icon-btn-sm" id="logoutBtn" title="Sair">Sair</button>
+        </div>
+      </nav>
+    </header>
+
+    <!-- Notificações -->
+    <div id="toastContainer" class="toast-container" aria-live="polite"></div>
+
+    <!-- ========================================================= -->
+    <!-- VISÃO 1: MEMBROS (PÚBLICA, SOMENTE LEITURA)               -->
+    <!-- ========================================================= -->
+    <main id="publicView" class="view-section">
+      <!-- Cards de Resumo -->
+      <section class="kpi-grid">
+        <div class="kpi-card">
+          <span class="kpi-label">Membros Ativos</span>
+          <div class="kpi-value" id="kpiActiveCount">0</div>
+          <span class="kpi-sub" id="kpiRosterDelta">Sem envios recentes</span>
+        </div>
+        <div class="kpi-card kpi-success">
+          <span class="kpi-label">Cumpriram a Meta (Semana)</span>
+          <div class="kpi-value" id="kpiMetCount">0</div>
+          <span class="kpi-sub" id="kpiMetPercent">0% de cumprimento</span>
+        </div>
+        <div class="kpi-card kpi-warning">
+          <span class="kpi-label">Em Risco (2/3 Faltas)</span>
+          <div class="kpi-value" id="kpiRiskCount">0</div>
+          <span class="kpi-sub">A 1 falta da exclusão</span>
+        </div>
+        <div class="kpi-card kpi-danger">
+          <span class="kpi-label">Exclusão (3/3 Faltas)</span>
+          <div class="kpi-value" id="kpiExcludedCount">0</div>
+          <span class="kpi-sub">Acumularam 3 penalidades</span>
+        </div>
+      </section>
+
+      <!-- Seletor de Semana e Metas -->
+      <section class="card week-banner">
+        <div class="week-banner-left">
+          <label for="publicWeekSelect" class="field-label-inline">Semana:</label>
+          <select id="publicWeekSelect" class="select-input"></select>
+          <div class="goal-pills" id="publicGoalPills"></div>
+        </div>
+        <div class="week-banner-right">
+          <button class="btn btn-ghost btn-sm" id="refreshDataBtn" title="Atualizar dados">
+            🔄 Atualizar dados
+          </button>
+        </div>
+      </section>
+
+      <!-- Filtros e Tabela -->
+      <section class="card table-card">
+        <div class="table-toolbar">
+          <div class="search-box">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="publicSearchInput" placeholder="Buscar jogador por nome ou cargo..." />
+          </div>
+          <div class="filter-pills" id="publicFilterPills">
+            <button class="pill active" data-filter="active">Ativos</button>
+            <button class="pill" data-filter="met">✅ Cumpriram</button>
+            <button class="pill" data-filter="missed">❌ Não cumpriram</button>
+            <button class="pill" data-filter="risk">⚠️ Em risco (2/3)</button>
+            <button class="pill" data-filter="excluded">🚫 Excluídos (3/3)</button>
+            <button class="pill" data-filter="former">🚪 Ex-membros</button>
+            <button class="pill" data-filter="all">Todos</button>
+          </div>
+        </div>
+
+        <div class="table-responsive">
+          <table class="data-table" id="publicTable">
+            <thead>
+              <tr>
+                <th data-sort="name" class="sortable">Jogador</th>
+                <th data-sort="rank" class="sortable">Cargo</th>
+                <th data-sort="level" class="sortable num">Nível</th>
+                <th>Status / Últ. Login</th>
+                <th data-sort="points" class="sortable num">Points</th>
+                <th data-sort="contribution" class="sortable num">Contribution</th>
+                <th>Meta Semanal</th>
+                <th data-sort="strikes" class="sortable">Penalidades</th>
+                <th>Histórico</th>
+              </tr>
+            </thead>
+            <tbody id="publicTableBody"></tbody>
+          </table>
+        </div>
+        <div id="publicEmptyState" class="empty-state hidden">
+          Nenhum jogador encontrado para este filtro.
+        </div>
+      </section>
+    </main>
+
+    <!-- ========================================================= -->
+    <!-- VISÃO 2: LÍDER E VICE-LÍDER (PROTEGIDA POR SENHA)         -->
+    <!-- ========================================================= -->
+    <main id="adminView" class="view-section hidden">
+      <!-- Sub-menu Admin -->
+      <div class="admin-tabs">
+        <button class="admin-tab active" data-admin-tab="upload">📤 Carregar Arquivo Semanal</button>
+        <button class="admin-tab" data-admin-tab="penalties">⚖️ Gestão de Penalidades</button>
+        <button class="admin-tab" data-admin-tab="weeks">📅 Histórico de Semanas</button>
+        <button class="admin-tab" data-admin-tab="settings">⚙️ Configurações</button>
+      </div>
+
+      <!-- ABA A: CARREGAR ARQUIVO SEMANAL -->
+      <section id="adminTabUpload" class="admin-panel">
+        <div class="card">
+          <div class="card-header-row">
+            <div>
+              <h2>Carregar Dados Semanais da Guild</h2>
+              <p class="muted">
+                Envie o arquivo <code>.json</code> exportado ou uma planilha (<code>.xlsx</code>, <code>.csv</code>) com os campos:
+                <code>name</code>, <code>rank</code>, <code>level</code>, <code>status</code>, <code>lastLogin</code>, <code>points</code>, <code>contribution</code>.
+              </p>
+            </div>
+            <div class="btn-group">
+              <button class="btn btn-secondary btn-sm" id="downloadSampleJsonBtn">
+                📥 Modelo .json
+              </button>
+              <button class="btn btn-secondary btn-sm" id="downloadTemplateBtn">
+                📥 Modelo .xlsx
+              </button>
+            </div>
+          </div>
+
+          <div class="form-grid-4">
+            <div class="form-group">
+              <label for="uploadWeekDate">Data da Semana</label>
+              <input type="date" id="uploadWeekDate" class="text-input" />
+            </div>
+            <div class="form-group">
+              <label for="uploadWeekLabel">Rótulo (opcional)</label>
+              <input type="text" id="uploadWeekLabel" class="text-input" placeholder="Ex.: Semana 47 - Nov" />
+            </div>
+            <div class="form-group">
+              <label for="uploadMinPoints">Meta mínima: Points</label>
+              <input type="number" id="uploadMinPoints" class="text-input" min="0" value="4" />
+            </div>
+            <div class="form-group">
+              <label for="uploadMinContribution">Meta mínima: Contribution</label>
+              <input type="number" id="uploadMinContribution" class="text-input" min="0" value="0" />
+            </div>
+          </div>
+
+          <div class="dropzone" id="excelDropzone">
+            <input type="file" id="excelFileInput" accept=".json,.xlsx,.xls,.csv,.tsv" hidden />
+            <div class="dropzone-icon">📂</div>
+            <p class="dropzone-title">Arraste o arquivo .json ou Excel aqui (ou clique para selecionar)</p>
+            <p class="dropzone-sub">Detecta automaticamente a data, novos membros, saídas e quem cumpriu as metas</p>
+          </div>
+        </div>
+
+        <!-- PRÉVIA IMEDIATA -->
+        <div id="uploadPreviewSection" class="card hidden">
+          <div class="card-header-row">
+            <div>
+              <h2>📋 Resumo Imediato do Envio</h2>
+              <p class="muted" id="previewSubtitle">Revise os resultados, ajuste penalidades se houver justificativa e salve ou publique a semana.</p>
+            </div>
+            <div class="btn-group">
+              <button class="btn btn-ghost" id="cancelPreviewBtn">Cancelar</button>
+              <button class="btn btn-primary" id="confirmUploadBtn">✅ Confirmar e Salvar Semana</button>
+            </div>
+          </div>
+
+          <div class="preview-summary-grid">
+            <div class="mini-stat">
+              <span>Total no arquivo</span>
+              <strong id="prevTotal">0</strong>
+            </div>
+            <div class="mini-stat mini-info">
+              <span>🆕 Novos membros</span>
+              <strong id="prevNew">0</strong>
+            </div>
+            <div class="mini-stat mini-muted">
+              <span>🚪 Saíram da guild</span>
+              <strong id="prevLeft">0</strong>
+            </div>
+            <div class="mini-stat mini-success">
+              <span>✅ Cumpriram a meta</span>
+              <strong id="prevMet">0</strong>
+            </div>
+            <div class="mini-stat mini-info">
+              <span>🕊️ Reduzem 1 falta</span>
+              <strong id="prevRedeem">0</strong>
+            </div>
+            <div class="mini-stat mini-danger">
+              <span>❌ Penalizar nesta semana</span>
+              <strong id="prevPenalize">0</strong>
+            </div>
+            <div class="mini-stat mini-critical">
+              <span>🚫 Chegam a 3/3</span>
+              <strong id="prevReachThree">0</strong>
+            </div>
+          </div>
+
+          <div id="rosterChangesBox" class="roster-changes hidden"></div>
+
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Ação (Falta)</th>
+                  <th>Jogador</th>
+                  <th>Cargo / Nível</th>
+                  <th class="num">Points</th>
+                  <th class="num">Contribution</th>
+                  <th>Resultado da Meta</th>
+                  <th>Faltas (Atual → Novo)</th>
+                  <th>Motivo / Observação</th>
+                </tr>
+              </thead>
+              <tbody id="previewTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ABA B: GESTÃO DE PENALIDADES -->
+      <section id="adminTabPenalties" class="admin-panel hidden">
+        <div class="card">
+          <div class="card-header-row">
+            <div>
+              <h2>⚖️ Controle de Penalidades e Exclusões</h2>
+              <p class="muted">Registre penalidades manuais com data, perdoe faltas justificadas ou acompanhe jogadores com 3/3 faltas.</p>
+            </div>
+            <button class="btn btn-primary btn-sm" id="openManualPenaltyBtn">
+              ➕ Registrar Penalidade Manual
+            </button>
+          </div>
+
+          <div class="table-toolbar">
+            <div class="search-box">
+              <span class="search-icon">🔍</span>
+              <input type="text" id="adminPenaltySearch" placeholder="Filtrar jogador..." />
+            </div>
+            <div class="filter-pills" id="adminPenaltyFilters">
+              <button class="pill active" data-pfilter="with_strikes">Com penalidades</button>
+              <button class="pill" data-pfilter="excluded">🚫 Excluídos (3/3)</button>
+              <button class="pill" data-pfilter="risk">⚠️ Em risco (2/3)</button>
+              <button class="pill" data-pfilter="all">Todos os jogadores</button>
+            </div>
+          </div>
+
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Jogador</th>
+                  <th>Situação na Guild</th>
+                  <th>Faltas</th>
+                  <th>Semanas com Penalidade (Datas)</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody id="adminPenaltiesBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ABA C: HISTÓRICO DE SEMANAS -->
+      <section id="adminTabWeeks" class="admin-panel hidden">
+        <div class="card">
+          <div class="card-header-row">
+            <div>
+              <h2>📅 Semanas Registradas</h2>
+              <p class="muted">Consulte ou remova envios semanais anteriores caso tenha carregado um arquivo incorreto.</p>
+            </div>
+          </div>
+          <div id="weeksHistoryList" class="weeks-list"></div>
+        </div>
+      </section>
+
+      <!-- ABA D: CONFIGURAÇÕES -->
+      <section id="adminTabSettings" class="admin-panel hidden">
+        <div class="card" style="max-width:680px;">
+          <h2>🔐 Guild, Metas e Senhas</h2>
+          <div class="form-stack">
+            <div class="form-group">
+              <label for="cfgGuildName">Nome da Guild</label>
+              <input type="text" id="cfgGuildName" class="text-input" />
+            </div>
+            <div class="form-grid-3">
+              <div class="form-group">
+                <label for="cfgDefaultPoints">Meta Points</label>
+                <input type="number" id="cfgDefaultPoints" class="text-input" min="0" />
+              </div>
+              <div class="form-group">
+                <label for="cfgDefaultContrib">Meta Contribution</label>
+                <input type="number" id="cfgDefaultContrib" class="text-input" min="0" />
+              </div>
+              <div class="form-group">
+                <label for="cfgMaxStrikes">Máx. Faltas</label>
+                <input type="number" id="cfgMaxStrikes" class="text-input" min="1" max="10" value="3" />
+              </div>
+            </div>
+            <hr class="divider" />
+            <div class="form-grid-2">
+              <div class="form-group">
+                <label for="cfgLeaderPass">Nova senha do Líder (opcional)</label>
+                <input type="password" id="cfgLeaderPass" class="text-input" placeholder="Deixe vazio para manter" />
+              </div>
+              <div class="form-group">
+                <label for="cfgVicePass">Nova senha do Vice-Líder (opcional)</label>
+                <input type="password" id="cfgVicePass" class="text-input" placeholder="Deixe vazio para manter" />
+              </div>
+            </div>
+            <button class="btn btn-primary" id="saveGuildSettingsBtn">Salvar Configurações</button>
+
+            <hr class="divider" />
+            <div class="form-group">
+              <label for="syncAccessKey">Chave de Sincronização Online (configurar 1 única vez)</label>
+              <div style="display:flex;gap:8px;">
+                <input type="password" id="syncAccessKey" class="text-input" placeholder="Cole a chave fornecida pelo administrador..." />
+                <button class="btn btn-secondary" id="saveSyncKeyBtn" type="button">Salvar</button>
+              </div>
+              <small class="hint">Salva apenas neste navegador para atualizar os dados automaticamente para todos os membros.</small>
+            </div>
+
+            <hr class="divider" />
+            <h3>Backup dos Dados</h3>
+            <p class="muted">Exporte um backup completo ou restaure dados salvos anteriormente.</p>
+            <div class="btn-group">
+              <button class="btn btn-secondary btn-sm" id="exportJsonBtn">⬇️ Baixar backup</button>
+              <label class="btn btn-secondary btn-sm" for="importJsonInput" style="cursor:pointer;">
+                ⬆️ Importar backup
+              </label>
+              <input type="file" id="importJsonInput" accept=".json" hidden />
+              <button class="btn btn-danger-outline btn-sm" id="resetDataBtn">🗑️ Limpar todos os dados</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- ========================================================= -->
+  <!-- MODAL: ACESSO LÍDER / VICE-LÍDER                          -->
+  <!-- ========================================================= -->
+  <div id="loginModal" class="modal-backdrop hidden" role="dialog" aria-modal="true">
+    <div class="modal-card modal-sm">
+      <div class="modal-header">
+        <h3>🔒 Acesso Líder / Vice-Líder</h3>
+        <button class="close-btn" data-close-modal="loginModal">&times;</button>
+      </div>
+      <form id="loginForm" class="form-stack">
+        <div class="form-group">
+          <label for="loginRole">Cargo</label>
+          <select id="loginRole" class="select-input">
+            <option value="Líder">👑 Líder</option>
+            <option value="Vice-Líder">🛡️ Vice-Líder</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="loginPassword">Senha</label>
+          <input type="password" id="loginPassword" class="text-input" placeholder="Digite sua senha..." required />
+        </div>
+        <p id="loginError" class="error-text hidden">Senha incorreta.</p>
+        <button type="submit" class="btn btn-primary btn-full">Entrar no Painel</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ========================================================= -->
+  <!-- MODAL: DETALHES E HISTÓRICO DO JOGADOR                    -->
+  <!-- ========================================================= -->
+  <div id="playerModal" class="modal-backdrop hidden" role="dialog" aria-modal="true">
+    <div class="modal-card modal-lg">
+      <div class="modal-header">
+        <div>
+          <h3 id="pmPlayerName">Jogador</h3>
+          <p class="muted" id="pmPlayerMeta"></p>
+        </div>
+        <button class="close-btn" data-close-modal="playerModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="pm-section">
+          <h4>⚖️ Histórico de Penalidades (<span id="pmStrikeCount">0/3</span>)</h4>
+          <div id="pmPenaltiesList" class="penalty-list"></div>
+        </div>
+        <div class="pm-section">
+          <h4>📊 Desempenho por Semana</h4>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Semana</th>
+                  <th>Cargo</th>
+                  <th class="num">Nível</th>
+                  <th class="num">Points</th>
+                  <th class="num">Contribution</th>
+                  <th>Meta</th>
+                </tr>
+              </thead>
+              <tbody id="pmHistoryBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================= -->
+  <!-- MODAL: REGISTRAR PENALIDADE MANUAL                        -->
+  <!-- ========================================================= -->
+  <div id="manualPenaltyModal" class="modal-backdrop hidden" role="dialog" aria-modal="true">
+    <div class="modal-card modal-sm">
+      <div class="modal-header">
+        <h3>➕ Registrar Penalidade</h3>
+        <button class="close-btn" data-close-modal="manualPenaltyModal">&times;</button>
+      </div>
+      <form id="manualPenaltyForm" class="form-stack">
+        <div class="form-group">
+          <label for="mpPlayerSelect">Jogador</label>
+          <select id="mpPlayerSelect" class="select-input" required></select>
+        </div>
+        <div class="form-group">
+          <label for="mpWeekDate">Data da semana não cumprida</label>
+          <input type="date" id="mpWeekDate" class="text-input" required />
+        </div>
+        <div class="form-group">
+          <label for="mpReason">Motivo</label>
+          <input type="text" id="mpReason" class="text-input" placeholder="Ex.: Não atingiu a meta semanal / Inativo" required />
+        </div>
+        <button type="submit" class="btn btn-danger btn-full">Salvar Penalidade</button>
+      </form>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
